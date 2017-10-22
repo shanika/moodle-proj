@@ -140,9 +140,9 @@
       file: path=/var/moodledata state=directory
 
     - name: moodle permisions
-        shell: 'sudo chown -R www-data /var/www/moodledata '
-        shell: 'sudo chmod -R 0755 /var/www/moodledata '
-        shell: 'sudo chmod -R 0755 /var/www/html/moodle'
+      shell: 'sudo chown -R www-data /var/www/moodledata '
+      shell: 'sudo chmod -R 0755 /var/www/moodledata '
+      shell: 'sudo chmod -R 0755 /var/www/html/moodle'
 
     - name: Setup moodle
       become: yes

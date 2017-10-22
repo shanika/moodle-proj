@@ -1,0 +1,159 @@
+- name: Assignment 2 - Ansible Playbook
+  hosts: localhost
+  tasks:
+    - name: Create Moodle Instance
+      gce:
+        instance_names: newmoodleinstance
+        zone: us-central1-a
+        image: ubuntu-1704
+        state: present
+        service_account_email: ""
+        credentials_file: ""
+        metadata : '{ "startup-script" : "apt-get update" }'
+      register: gce
+
+    - name: Wait for SSH to come up
+      local_action: wait_for host="{{ item.public_ip }}"
+                    port=22
+                    delay=10
+                    timeout=60
+                    state=started
+      with_items: "{{ gce.instance_data }}"
+
+    - name: Save host data
+      add_host:
+        hostname: "{{ item.public_ip }}"
+        groupname: moodle_instances
+      with_items: "{{ gce.instance_data }}"
+
+- name: Open port 80 to allow Apache
+  hosts:  moodle_instances
+  gather_facts: yes
+  tasks:
+    - name: Allow HTTP
+      local_action:
+       module: gce_net
+       name: default
+       allowed: tcp:80
+       fwname: all-http
+
+- name: Set up Apache 2 Server
+  hosts: moodle_instances
+  sudo: yes
+  tasks:
+   - name: Install Apache
+     action: apt pkg=apache2 state=present
+   - name: Start Apache
+     service: name=apache2 state=started
+
+- name: Set up MySQL
+  hosts: moodle_instances
+  sudo: yes
+  vars:
+    mysql_root_pass: my_password #MySQL Root Password
+  tasks:
+    - name: Install MySQL
+      action: apt pkg={{ item }} state=installed
+      with_items:
+        - python-mysqldb
+        - mysql-server
+
+    - name: Start the MySQL service
+      action: service name=mysql state=started
+
+    - name: get ip
+      ipify_facts:
+
+    - name: update mysql root password for all root accounts
+
+      mysql_user:
+        name: root
+        host: localhost
+        password: "{{ mysql_root_pass}}"
+        login_user: root
+        login_password: "{{ mysql_root_pass }}"
+        check_implicit_admin: yes
+        priv: "*.*:ALL,GRANT"
+
+- name: install php
+  hosts: moodle_instances
+  sudo: yes
+  tasks:
+    - name: install php7 libarys
+      action: apt pkg={{ item }} state=installed
+      with_items:
+        - php7.0
+        - libapache2-mod-php7.0
+        - graphviz
+        - aspell
+        - php7.0-pspell
+        - git
+        - curl
+        - python-dev
+        - libmysqlclient-dev
+        - clamav
+        - unzip
+        - php7.0-mysql
+        - php7.0-soap
+        - php7.0-mbstring
+        - php7.0-ldap
+        - php7.0-zip
+        - php7.0-intl
+        - php7.0-xmlrpc
+        - php7.0-curl
+        - php7.0-gd
+        - php7.0-ldap
+        - php7.0-xml
+    - name: apache2 restart
+      service: name=apache2 state=restarted
+
+  gather_facts: True
+- name: moodle install
+  hosts: moodle_instances
+  sudo: yes
+  vars:
+        host_ip:
+  tasks:
+      - name: install git
+        action: apt pkg=git state=installed
+
+      - name: clone moodle
+        git:
+            repo: git://git.moodle.org/moodle.git
+            dest: /var/www/html/moodle
+            version: MOODLE_31_STABLE
+
+      - name: makes moodledata
+        file:
+            path: /var/www/moodledata
+            state: directory
+
+      - name: moodle permisions
+        shell: 'sudo chown -R www-data /var/www/moodledata '
+        shell: 'sudo chmod -R 0755 /var/www/moodledata '
+        shell: 'sudo chmod -R 0755 /var/www/html/moodle'
+
+      - name: Create a new database with name 'moodle'
+        mysql_db:
+            login_user: root
+            login_password: my_password
+            name: moodle
+            state: present
+            encoding: utf8
+
+      - name: add user to moodle
+        mysql_user:
+            login_user: root
+            login_password: my_password
+            name: admin
+            password: my_password
+            priv: '*.*:ALL'
+            state: present
+      - name: get my public IP
+        ipify_facts:
+
+      - name: install.php
+        shell: 'php /var/www/html/moodle/admin/cli/install.php --chmod=2777 --lang=en --wwwroot=http://{{ipify_public_ip}}/moodle --dataroot=/var/www/moodledata --dbpass=my_password --fullname=moodle --shortname=moodle --summary=test --adminpass=Password1@ --adminemail=admin@mail.com --non-interactive --agree-license'
+
+      - name: config.php permission
+        shell: 'sudo chmod -R 644 /var/www/html/moodle/config.php'

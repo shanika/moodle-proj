@@ -1,0 +1,172 @@
+- name: Create instance(s)
+  hosts: localhost
+  gather_facts: no
+  connection: local
+
+# Create the VM server
+  vars:
+    machine_type: n1-standard-1 # default
+    image: ubuntu-1604-xenial-v20160721
+    service_account_email: ...@developer.gserviceaccount.com # You need to fill the dots  with your credentials
+    credentials_file: /home/.../gce_key.json # You need to fill the dots  with your credentials
+    project_id: ... # You need to fill the dots  with your credentials
+
+  tasks:
+
+# Generate SSH key for the server
+    - name: Get the default SSH key
+      command: cat ~/.ssh/id_rsa.pub
+      register: ssh_key
+
+# Communicate with new server and launch the new instance in background
+    - name: Launch instances
+      gce:
+          instance_names: moodle
+          machine_type: "{{ machine_type }}"
+          image: "{{ image }}"
+          service_account_email: "{{ service_account_email }}"
+          pem_file: "{{ credentials_file }}"
+          project_id: "{{ project_id }}"
+          tags:
+            - http-server
+            - moodle
+      register: gce
+
+    - name: Wait for SSH to come up
+      wait_for: host={{ item.public_ip }} port=22 delay=10 timeout=60
+      with_items: "{{ gce.instance_data }}"
+
+    - name: Add host to groupname
+      add_host: hostname={{ item.public_ip }} groupname=new_instances
+      with_items: "{{ gce.instance_data }}"
+
+    - name: Allow HTTP
+      local_action: gce_net
+      args:
+        fwname: "all-http"
+        name: "default"
+        allowed: "tcp:80"
+        state: "present"
+        service_account_email: "{{ service_account_email }}"
+        pem_file: "{{ credentials_file }}"
+        project_id: "{{ project_id }}"
+
+- name: Manage new instances
+  hosts: new_instances
+  connection: ssh
+
+  vars:
+    mysql_root_pw: moodle
+  tasks:
+
+  # Install the necessary packages such as apache2, php, mysql
+    - name: install apache2
+      apt: name=apache2 update_cache=yes state=latest
+      sudo: yes
+
+    - name: install php
+      apt: name={{ item }}
+      sudo: yes
+      with_items:
+        - php
+        - libapache2-mod-php
+        - php-mysql
+        - aspell
+        - graphviz
+        - php-curl
+        - php-gd
+        - php-intl
+        - php-ldap
+        - php-mysql
+        - php-pspell
+        - php-xml
+        - php-xmlrpc
+        - php-zip
+        - php-mbstring
+        - php-soap
+      notify:
+        - restart apache2
+
+    - name: Install MySQL
+      apt: name={{ item }} update_cache=yes cache_valid_time=3600 state=present
+      sudo: yes
+      with_items:
+        - python-mysqldb
+        - mysql-client
+        - mysql-server
+
+    - name: Start the MySQL service
+      sudo: yes
+      service:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Set my sql password
+      sudo: yes
+      mysql_user:
+        name: root
+        host: "{{ item }}"
+        password: "{{ mysql_root_pw }}"
+        login_user: root
+        login_password: "{{ mysql_root_pw }}"
+        check_implicit_admin: yes
+        priv: "*.*:ALL,GRANT"
+      with_items:
+        - "{{ ansible_hostname }}"
+        - 127.0.0.1
+        - ::1
+        - localhost
+
+# Create moodle database and there user
+    - name: Create database user
+      sudo: yes
+      mysql_user: user=moodleuser password=moodlepw priv=*.*:ALL state=present
+
+    - name: Create database
+      sudo: yes
+      mysql_db: db=moodle_db state=present
+
+# Download moodle to the new server and install it
+    - name: Download moodle
+      get_url:
+        url: https://download.moodle.org/download.php/direct/stable32/moodle-latest-32.tgz
+        dest: /tmp/moodle.tgz
+
+    - name: Extract moodle.tgz in to /var/www/html
+      sudo: yes
+      unarchive:
+        src: /tmp/moodle.tgz
+        dest: /var/www/html
+        copy: no
+
+    - name: Creates directory
+      sudo: yes
+      file: path=/var/moodledata state=directory
+
+    - name: moodle permisions
+        shell: 'sudo chown -R www-data /var/www/moodledata '
+        shell: 'sudo chmod -R 0755 /var/www/moodledata '
+        shell: 'sudo chmod -R 0755 /var/www/html/moodle'
+
+    - name: Setup moodle
+      become: yes
+      shell: '/usr/bin/php /var/www/html/moodle/admin/cli/install.php'
+      args:
+        lang: en
+        wwwroot: "{{ansible_hostname}}"
+        dataroot: /var/moodledata
+        dbuser: moodleuser
+        dbpass: moodlepw
+        fullname: Group01
+        shortname: GP01
+        adminuser: admin
+        adminpass: Ubuntu16.04
+        adminemail: buddhistudy@gmail.com
+        non-interactive: true
+        agree-license: true
+
+  handlers:
+    - name: restart apache2
+      service: name=apache2 state=restarted
+      sudo: yes

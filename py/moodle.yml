@@ -22,7 +22,7 @@
           machine_type: "{{ machine_type }}"
           image: "{{ image }}"
           service_account_email: ""
-          credentials_file: ""
+          pem_file: ""
           tags:
             - http-server
             - moodle
@@ -44,7 +44,7 @@
         allowed: "tcp:80"
         state: "present"
         service_account_email: ""
-        credentials_file: ""
+        pem_file: ""
 
 - name: Manage new instances
   hosts: new_instances

@@ -7,9 +7,6 @@
   vars:
     machine_type: n1-standard-1 # default
     image: ubuntu-1604-xenial-v20160721
-    service_account_email: ...@developer.gserviceaccount.com # You need to fill the dots  with your credentials
-    credentials_file: /home/.../gce_key.json # You need to fill the dots  with your credentials
-    project_id: ... # You need to fill the dots  with your credentials
 
   tasks:
 
@@ -24,9 +21,8 @@
           instance_names: moodle
           machine_type: "{{ machine_type }}"
           image: "{{ image }}"
-          service_account_email: "{{ service_account_email }}"
-          pem_file: "{{ credentials_file }}"
-          project_id: "{{ project_id }}"
+          service_account_email: ""
+          pem_file: ""
           tags:
             - http-server
             - moodle
@@ -47,9 +43,8 @@
         name: "default"
         allowed: "tcp:80"
         state: "present"
-        service_account_email: "{{ service_account_email }}"
-        pem_file: "{{ credentials_file }}"
-        project_id: "{{ project_id }}"
+        service_account_email: ""
+        pem_file: ""
 
 - name: Manage new instances
   hosts: new_instances
